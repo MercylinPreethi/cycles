@@ -167,23 +167,33 @@ ccl_device_inline float3 triangle_point_from_uv_and_verts(KernelGlobals kg,
 
 ccl_device_inline void triangle_shader_setup(KernelGlobals kg, ccl_private ShaderData *sd)
 {
-  sd->shader = kernel_data_fetch(tri_shader, sd->prim);
+  const int prim = sd->prim;
 
-  sd->P = triangle_point_from_uv(kg, sd, sd->prim, sd->u, sd->v);
+  sd->shader = kernel_data_fetch(tri_shader, prim);
 
-  /* Normals. */
-  const float3 Ng = triangle_normal(kg, sd);
+  const int position_offset = kernel_data_fetch(objects, sd->object).position_offset;
+  const uint3 tri_vindex = kernel_data_fetch(tri_vindex, prim);
+  const float3 v0 = kernel_data_fetch(tri_verts, position_offset + tri_vindex.x);
+  const float3 v1 = kernel_data_fetch(tri_verts, position_offset + tri_vindex.y);
+  const float3 v2 = kernel_data_fetch(tri_verts, position_offset + tri_vindex.z);
+
+  const float3 verts[3] = {v0, v1, v2};
+  sd->P = triangle_point_from_uv_and_verts(kg, sd, sd->u, sd->v, verts);
+
+  const float3 Ng = object_negative_scale_applied(sd->object_flag) ?
+                        normalize(cross(v2 - v0, v1 - v0)) :
+                        normalize(cross(v1 - v0, v2 - v0));
   sd->Ng = Ng;
   sd->N = Ng;
 
   /* Smooth normal. */
   if (sd->shader & SHADER_SMOOTH_NORMAL) {
-    sd->N = triangle_smooth_normal(kg, Ng, sd->object, sd->object_flag, sd->prim, sd->u, sd->v);
+    sd->N = triangle_smooth_normal(kg, Ng, sd->object, sd->object_flag, prim, sd->u, sd->v);
   }
 
 #ifdef __DPDU__
-  /* dPdu/dPdv */
-  triangle_dPdudv(kg, sd->object, sd->prim, &sd->dPdu, &sd->dPdv);
+  sd->dPdu = (v1 - v0);
+  sd->dPdv = (v2 - v0);
 #endif
 }
 
