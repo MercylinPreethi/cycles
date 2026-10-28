@@ -24,6 +24,19 @@
 #include "kernel/types.h"
 #include "util/math_intersect.h"
 
+#ifndef ccl_prefetch_l1
+#  if defined(__KERNEL_GPU__)
+#    define ccl_prefetch_l1(p) ((void)(p))
+#  elif defined(_MSC_VER)
+#    include <xmmintrin.h>
+#    define ccl_prefetch_l1(p) _mm_prefetch((const char *)(p), _MM_HINT_T0)
+#  elif defined(__GNUC__) || defined(__clang__)
+#    define ccl_prefetch_l1(p) __builtin_prefetch((const void *)(p), 0, 3)
+#  else
+#    define ccl_prefetch_l1(p) ((void)(p))
+#  endif
+#endif
+
 CCL_NAMESPACE_BEGIN
 
 ccl_device_forceinline void integrate_surface_shader_setup(KernelGlobals kg,
@@ -32,6 +45,17 @@ ccl_device_forceinline void integrate_surface_shader_setup(KernelGlobals kg,
 {
   Intersection isect ccl_optional_struct_init;
   integrator_state_read_isect(state, &isect);
+
+#ifndef __KERNEL_GPU__
+  if (isect.type == PRIMITIVE_TRIANGLE) {
+    const int position_offset = kernel_data_fetch(objects, isect.object).position_offset;
+    ccl_prefetch_l1(kernel_data_array(tri_vindex) + isect.prim);
+    const uint3 tri_vindex = kernel_data_fetch(tri_vindex, isect.prim);
+    ccl_prefetch_l1(kernel_data_array(tri_verts) + position_offset + tri_vindex.x);
+    ccl_prefetch_l1(kernel_data_array(tri_verts) + position_offset + tri_vindex.y);
+    ccl_prefetch_l1(kernel_data_array(tri_verts) + position_offset + tri_vindex.z);
+  }
+#endif
 
   Ray ray ccl_optional_struct_init;
   integrator_state_read_ray(state, &ray);
